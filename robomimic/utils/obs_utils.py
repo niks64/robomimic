@@ -2,14 +2,13 @@
 A collection of utilities for working with observation dictionaries and
 different kinds of modalities such as images.
 """
-import numpy as np
-from copy import deepcopy
 from collections import OrderedDict
+from copy import deepcopy
 
+import numpy as np
+import robomimic.utils.tensor_utils as TU
 import torch
 import torch.nn.functional as F
-
-import robomimic.utils.tensor_utils as TU
 
 # MACRO FOR VALID IMAGE CHANNEL SIZES
 VALID_IMAGE_CHANNEL_DIMS = {1, 3}       # depth, rgb
@@ -212,9 +211,9 @@ def initialize_obs_utils_with_obs_specs(obs_modality_specs):
     # remove duplicate entries and store in global mapping
     OBS_MODALITIES_TO_KEYS = { obs_modality : list(set(obs_modality_mapping[obs_modality])) for obs_modality in obs_modality_mapping }
 
-    print("\n============= Initialized Observation Utils with Obs Spec =============\n")
-    for obs_modality, obs_keys in OBS_MODALITIES_TO_KEYS.items():
-        print("using obs modality: {} with keys: {}".format(obs_modality, obs_keys))
+    # print("\n============= Initialized Observation Utils with Obs Spec =============\n")
+    # for obs_modality, obs_keys in OBS_MODALITIES_TO_KEYS.items():
+    #     print("using obs modality: {} with keys: {}".format(obs_modality, obs_keys))
 
 
 def initialize_default_obs_encoder(obs_encoder_config):
