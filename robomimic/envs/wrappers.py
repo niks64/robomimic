@@ -1,12 +1,13 @@
 """
 A collection of useful environment wrappers.
 """
-from copy import deepcopy
 import textwrap
-import numpy as np
 from collections import deque
+from copy import deepcopy
 
+import numpy as np
 import robomimic.envs.env_base as EB
+from robosuite.utils.camera_utils import CameraMover, get_camera_info
 
 
 class EnvWrapper(object):
@@ -218,3 +219,82 @@ class FrameStackWrapper(EnvWrapper):
     def _to_string(self):
         """Info to pretty print."""
         return "num_frames={}".format(self.num_frames)
+    
+
+class RandomizedCameraWrapper(EnvWrapper):
+    """
+    Wrapper for randomizing the camera pose in the environment during each trajectory.
+    Note that this randomizes both during reset() and reset_to() calls.
+    """
+
+    def __init__(self, env, camera_name, camera_pose_sampler, randomize_freq=1):
+        """
+        Args:
+            env (EnvBase instance): The environment to wrap.
+            camera_pose_sampler: An object that exposes sample_poses(num_poses, default_pose) 
+            randomize_freq (int): How often (after how many resets) to randomize the camera pose by sampling from camera_pose_generator
+        """
+        super(RandomizedCameraWrapper, self).__init__(env=env)
+        self.camera_name = camera_name
+        self.camera_pose_sampler = camera_pose_sampler
+        self.randomize_freq = randomize_freq
+        self.resets_since_last_randomization = -1
+        camera_mover = CameraMover(self.env.env,
+                                   self.camera_name)
+        self.default_camera_pose = deepcopy(camera_mover.get_camera_pose())
+        self.last_camera_pose = deepcopy(self.default_camera_pose)
+        self._camera_mover = None
+
+    def reset(self):
+        """
+        Modify to randomize camera pose and return observation.
+        """
+        obs = self.env.reset()
+        if self.resets_since_last_randomization % self.randomize_freq == 0 or self.resets_since_last_randomization == -1:
+            self._camera_mover = None
+            self.randomize_camera_pose()
+            self.resets_since_last_randomization = 1
+        else:
+            self._camera_mover = CameraMover(
+                self.env.env,
+                self.camera_name
+            ) 
+            self._camera_mover.set_camera_pose(*self.last_camera_pose)
+            self.resets_since_last_randomization += 1
+        return obs
+
+    def reset_to(self, state, camera_pose=None):
+        """
+        Modify to randomize camera pose and return observation.
+        """
+        obs = self.env.reset_to(state)
+        # we have to do this since the call to env.reset_to will reset the camera pose
+        # to the default pose, so we have to adjust it again
+        if camera_pose is not None:
+            self._camera_mover.set_camera_pose(*camera_pose)
+            self.last_camera_pose = deepcopy(camera_pose)
+        else:
+            self._camera_mover.set_camera_pose(*self.last_camera_pose)
+        return obs
+
+    def randomize_camera_pose(self):
+        """
+        Randomize camera pose using the given angle and position std.
+        """
+        if not self._camera_mover:
+            self._camera_mover = CameraMover(self.env.env,
+                                             self.camera_name)
+        random_cam_pose = self.camera_pose_sampler.sample_poses(1, self.default_camera_pose)[0]
+        self._camera_mover.set_camera_pose(*random_cam_pose)
+        self.last_camera_pose = deepcopy(random_cam_pose)
+
+    def get_camera_info(self):
+        """
+        Get the camera info for the current camera pose.
+        :return: dictionary of camera info
+        """
+        return get_camera_info(self.env.env, [self.camera_name])[self.camera_name]
+
+    def _to_string(self):
+        """Info to pretty print."""
+        return "CameraRandomizationWrapper"
