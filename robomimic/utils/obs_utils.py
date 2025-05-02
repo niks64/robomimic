@@ -9,6 +9,7 @@ import numpy as np
 import robomimic.utils.tensor_utils as TU
 import torch
 import torch.nn.functional as F
+import open3d as o3d
 
 # MACRO FOR VALID IMAGE CHANNEL SIZES
 VALID_IMAGE_CHANNEL_DIMS = {1, 3}       # depth, rgb
@@ -43,6 +44,14 @@ OBS_MODALITY_CLASSES = {}
 OBS_ENCODER_CORES = {"None": None}          # Per-modality core net as defined in obs_cores.py, e.g., "VisualCore"
 OBS_RANDOMIZERS = {"None": None}            # Obs randomizer defined in obs_cores.py, e.g., "CropRandomizer"
 OBS_ENCODER_BACKBONES = {"None": None}      # Architecture backbones for encoding obervation, e.g., "ResNet18Conv"
+
+center = np.array([0, 0, 0.7])
+WS_SIZE = 0.6
+WORKSPACE = np.array([
+    [center[0] - WS_SIZE/2, center[0] + WS_SIZE/2],
+    [center[1] - WS_SIZE/2, center[1] + WS_SIZE/2],
+    [center[2], center[2] + WS_SIZE]
+])
 
 
 def register_obs_key(target_class):
@@ -992,3 +1001,40 @@ class LowDimModality(Modality):
     @classmethod
     def _default_obs_unprocessor(cls, obs):
         return obs
+
+def np2o3d(pcd, color=None):
+    # pcd: (n, 3)
+    # color: (n, 3)
+    pcd_o3d = o3d.geometry.PointCloud()
+    pcd_o3d.points = o3d.utility.Vector3dVector(pcd)
+    if color is not None and color.shape[0] > 0:
+        assert pcd.shape[0] == color.shape[0]
+        assert color.max() <= 1
+        assert color.min() >= 0
+        pcd_o3d.colors = o3d.utility.Vector3dVector(color)
+    return pcd_o3d
+
+def o3d2np(pcd_o3d):
+    # pcd: (n, 3)
+    # color: (n, 3)
+    xyz = np.asarray(pcd_o3d.points)
+    rgb = np.asarray(pcd_o3d.colors)
+    pcd_np = np.concatenate([xyz, rgb], axis=1)
+    return pcd_np
+
+def depth2fgpcd(depth, mask, cam_params):
+    # depth: (h, w)
+    # fgpcd: (n, 3)
+    # mask: (h, w)
+    h, w = depth.shape
+    mask = np.logical_and(mask, depth > 0)
+    # mask = (depth <= 0.599/0.8)
+    fgpcd = np.zeros((mask.sum(), 3))
+    fx, fy, cx, cy = cam_params
+    pos_x, pos_y = np.meshgrid(np.arange(w), np.arange(h))
+    pos_x = pos_x[mask]
+    pos_y = pos_y[mask]
+    fgpcd[:, 0] = (pos_x - cx) * depth[mask] / fx
+    fgpcd[:, 1] = (pos_y - cy) * depth[mask] / fy
+    fgpcd[:, 2] = depth[mask]
+    return fgpcd

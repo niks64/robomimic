@@ -22,6 +22,9 @@ except ImportError:
 
 import robomimic.utils.obs_utils as ObsUtils
 import robomimic.envs.env_base as EB
+from robosuite.utils.camera_utils import get_real_depth_map, get_camera_extrinsic_matrix, get_camera_intrinsic_matrix
+from robomimic.utils.obs_utils import (WORKSPACE, depth2fgpcd, np2o3d, o3d2np)
+
 
 # protect against missing mujoco-py module, since robosuite might be using mujoco-py or DM backend
 try:
@@ -40,7 +43,8 @@ class EnvRobosuite(EB.EnvBase):
         render_offscreen=False, 
         use_image_obs=False, 
         use_depth_obs=False, 
-        postprocess_visual_obs=True, 
+        postprocess_visual_obs=True,
+        use_pcd_obs=False,
         **kwargs,
     ):
         """
@@ -103,6 +107,7 @@ class EnvRobosuite(EB.EnvBase):
         self._env_name = env_name
         self._init_kwargs = deepcopy(kwargs)
         self.env = robosuite.make(self._env_name, **kwargs)
+        self.use_pcd_obs = use_pcd_obs
 
         if self._is_v1:
             # Make sure joint position observations and eef vel observations are active
@@ -231,6 +236,37 @@ class EnvRobosuite(EB.EnvBase):
 
         # "object" key contains object information
         ret["object"] = np.array(di["object-state"])
+
+        if self.use_pcd_obs:
+
+            for cam_idx, camera_name in enumerate(self.env.camera_names):
+                if "eye_in_hand" in camera_name:
+                    continue
+                cam_height = self.env.camera_heights[cam_idx]
+                cam_width = self.env.camera_widths[cam_idx]
+                ext_mat = get_camera_extrinsic_matrix(self.env.sim, camera_name)
+                int_mat = get_camera_intrinsic_matrix(self.env.sim, camera_name, cam_height, cam_width)
+                depth = di[f'{camera_name}_depth'][::-1]
+                depth = get_real_depth_map(self.env.sim, depth)
+                depth = depth[:, :, 0]
+                color = di[f'{camera_name}_image'][::-1]
+                
+                cam_param = [int_mat[0, 0], int_mat[1, 1], int_mat[0, 2], int_mat[1, 2]]
+                mask = np.ones_like(depth, dtype=bool)
+                pcd = depth2fgpcd(depth, mask, cam_param)
+
+                # pose = np.linalg.inv(ext_mat)
+                pose = ext_mat
+                
+                # trans_pcd = pose @ np.concatenate([pcd.T, np.ones((1, pcd.shape[0]))], axis=0)
+                trans_pcd = np.einsum('ij,jk->ik', pose, np.concatenate([pcd.T, np.ones((1, pcd.shape[0]))], axis=0))
+                trans_pcd = trans_pcd[:3, :].T
+
+                mask = (trans_pcd[:, 0] > WORKSPACE[0, 0]) * (trans_pcd[:, 0] < WORKSPACE[0, 1]) * (trans_pcd[:, 1] > WORKSPACE[1, 0]) * (trans_pcd[:, 1] < WORKSPACE[1, 1]) * (trans_pcd[:, 2] > WORKSPACE[2, 0]) * (trans_pcd[:, 2] < WORKSPACE[2, 1])
+
+                pcd_o3d = np2o3d(trans_pcd[mask], color.reshape(-1, 3)[mask].astype(np.float64) / 255)
+
+                ret[camera_name + '_pcd'] = o3d2np(pcd_o3d.farthest_point_down_sample(num_samples=1024)) 
 
         if self._is_v1:
             for robot in self.env.robots:
