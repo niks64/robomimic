@@ -20,6 +20,7 @@ try:
 except ImportError:
     pass
 
+import os
 import robomimic.utils.obs_utils as ObsUtils
 import robomimic.envs.env_base as EB
 from robosuite.utils.camera_utils import get_real_depth_map, get_camera_extrinsic_matrix, get_camera_intrinsic_matrix
@@ -93,7 +94,7 @@ class EnvRobosuite(EB.EnvBase):
         kwargs.update(update_kwargs)
 
         if self._is_v1:
-            if kwargs["has_offscreen_renderer"]:
+            if kwargs["has_offscreen_renderer"] and os.environ.get("MUJOCO_GL") != "osmesa":
                 # ensure that we select the correct GPU device for rendering by testing for EGL rendering
                 # NOTE: this package should be installed from this link (https://github.com/StanfordVL/egl_probe)
                 import egl_probe
@@ -245,7 +246,6 @@ class EnvRobosuite(EB.EnvBase):
             for cam_idx, camera_name in enumerate(self.env.camera_names):
                 if "eye_in_hand" in camera_name:
                     continue
-                print("Generating pcd for camera: ", camera_name)
                 cam_height = self.env.camera_heights[cam_idx]
                 cam_width = self.env.camera_widths[cam_idx]
                 ext_mat = get_camera_extrinsic_matrix(self.env.sim, camera_name)
