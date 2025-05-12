@@ -53,6 +53,8 @@ WORKSPACE = np.array([
     [center[2], center[2] + WS_SIZE]
 ])
 
+VOXEL_RESO = 64
+
 
 def register_obs_key(target_class):
     assert target_class not in OBS_MODALITY_CLASSES, f"Already registered modality {target_class}!"
@@ -1038,3 +1040,34 @@ def depth2fgpcd(depth, mask, cam_params):
     fgpcd[:, 1] = (pos_y - cy) * depth[mask] / fy
     fgpcd[:, 2] = depth[mask]
     return fgpcd
+
+def pcd_to_voxel(pcds: np.ndarray, voxel_size: float = 0.01):
+    assert pcds.shape[2] == 6, "PCD CONVERSION ERROR: pcd shape is incorrect"
+    assert (pcds[0, :,3:6] <= 1.).all(), "PCD CONVERSION ERROR: pcd color is incorrect"
+    # pcd: (n, 6)
+    voxels = []
+    voxel_bound = WORKSPACE.T
+    for pcd in pcds:
+        p = o3d.geometry.PointCloud()
+        p.points = o3d.utility.Vector3dVector(pcd[:,:3])
+        p.colors = o3d.utility.Vector3dVector(pcd[:,3:6])
+        voxel_grid = o3d.geometry.VoxelGrid.create_from_point_cloud_within_bounds(p, voxel_size=voxel_size, min_bound=voxel_bound[0], max_bound=voxel_bound[1])
+        voxel = voxel_grid.get_voxels()  # returns list of voxels
+        if len(voxel) == 0:
+            np_voxels = np.zeros([4, VOXEL_RESO, VOXEL_RESO, VOXEL_RESO], dtype=np.float32)
+        else:
+            indices = np.stack(list(vx.grid_index for vx in voxel))
+            colors = np.stack(list(vx.color for vx in voxel))
+
+            mask = (indices > 0) * (indices < VOXEL_RESO)
+            indices = indices[mask.all(axis=1)]
+            colors = colors[mask.all(axis=1)]
+
+            np_voxels = np.zeros([4, VOXEL_RESO, VOXEL_RESO, VOXEL_RESO], dtype=np.float32)
+            np_voxels[0, indices[:, 0], indices[:, 1], indices[:, 2]] = 1
+            np_voxels[1:, indices[:, 0], indices[:, 1], indices[:, 2]] = colors.T
+
+            # np_voxels = np.moveaxis(np_voxels, [0, 1, 2, 3], [0, 3, 2, 1])
+            # np_voxels = np.flip(np_voxels, (1, 2))
+        voxels.append(np_voxels)
+    return np.stack(voxels)

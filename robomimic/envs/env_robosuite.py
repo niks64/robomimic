@@ -70,6 +70,8 @@ class EnvRobosuite(EB.EnvBase):
                 for saving to a dataset (to save space on RGB images for example).
         """
         self.postprocess_visual_obs = postprocess_visual_obs
+        use_depth_obs = use_depth_obs or use_pcd_obs
+        use_image_obs = use_image_obs or use_pcd_obs
         self.use_depth_obs = use_depth_obs
 
         # robosuite version check
@@ -108,6 +110,7 @@ class EnvRobosuite(EB.EnvBase):
         self._init_kwargs = deepcopy(kwargs)
         self.env = robosuite.make(self._env_name, **kwargs)
         self.use_pcd_obs = use_pcd_obs
+        self._init_kwargs["use_pcd_obs"] = use_pcd_obs
 
         if self._is_v1:
             # Make sure joint position observations and eef vel observations are active
@@ -242,6 +245,7 @@ class EnvRobosuite(EB.EnvBase):
             for cam_idx, camera_name in enumerate(self.env.camera_names):
                 if "eye_in_hand" in camera_name:
                     continue
+                print("Generating pcd for camera: ", camera_name)
                 cam_height = self.env.camera_heights[cam_idx]
                 cam_width = self.env.camera_widths[cam_idx]
                 ext_mat = get_camera_extrinsic_matrix(self.env.sim, camera_name)
